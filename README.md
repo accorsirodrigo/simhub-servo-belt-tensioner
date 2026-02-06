@@ -1,78 +1,190 @@
 # Belt-Tensioner-Robot-Servo
-Sim Racing Belt Tensioner using robots hobby servos and SimHub
 
-Based on the original project:
+Sistema de tensionamento de cintos para sim racing usando servos de robótica de alto torque e SimHub.
 
-author=blekenbleu,
-title = SimHub Custom serial device for Blue Pill
-year =2021
-url = https://blekenbleu.github.io/Arduino/<br />
-Description: https://blekenbleu.github.io/Arduino/SimHubCustomSerial<br />
-Original Arduino Blue Pill scetch: https://github.com/blekenbleu/blekenbleu.github.io/tree/master/Arduino/Blue_ASCII_Servo<br />
-Original SimHub Profile: https://blekenbleu.github.io/Arduino/proxy_G.shsds.txt<br />
+Baseado no projeto original de **blekenbleu**:  
+- Descrição do dispositivo serial customizado:  
+  https://blekenbleu.github.io/Arduino/SimHubCustomSerial  
+- Sketch original (Blue Pill):  
+  https://github.com/blekenbleu/blekenbleu.github.io/tree/master/Arduino/Blue_ASCII_Servo  
+- Perfil SimHub original:  
+  https://blekenbleu.github.io/Arduino/proxy_G.shsds.txt  
 
-Youtube demo of my belt tensioner: https://www.youtube.com/watch?v=9a0rFGwfBp4<br />
-Roller STLs here: https://www.thingiverse.com/thing:5490048<br />
-Supercaps PSU and Arduino box here: https://www.thingiverse.com/thing:5490068<br />
+Demonstração em vídeo do meu tensionador:  
+- https://www.youtube.com/watch?v=9a0rFGwfBp4  
 
-BOM:
-- Arduino Nano
-- 2x Twin Arm servo, 180 degrees, 60KG, 8.4V; full metal brackets - DSServo RDS5160 SSG 60kg 8.4v High Voltage Torque Stainless Steel Gear Digital Servo For RC Model Robot Arm Arduino DIY Industry (from Aliexpress)
-- XL4005 5A 75W XL4015 DC-DC XL6009 Power Supply Module Boost Buck DC to DC Adjustable Step Up Step Down Converter Module
+Modelos 3D:  
+- Rolos do tensionador: https://www.thingiverse.com/thing:5490048  
+- Caixa para supercaps + Arduino: https://www.thingiverse.com/thing:5490068  
 
-Optional:
-- 2022 New 6pcs 16V 16.6F Super Capacitor High Current 2.7V 100F Double Row Ultracapacitor
-- XT60 connectors
-- 0.28 Inch 2.5V-40V Mini Digital Voltmeter
-- Automotive fuse + socket (10A)
+---
 
+## Visão Geral
 
-Description:
+Este projeto usa:
 
-Utilizes two Robot Hobby servos , 60KG each, driven by SimHub Custom profile. Modifications to origina blackenbleu code include:
+- **Arduino Nano** como controlador.
+- **Dois servos de alto torque** (um para cada lado do cinto).
+- **SimHub** para ler dados do jogo (forças G) e enviar comandos via **Custom Serial Device**.
 
-Blue_ASCII_Servo.ino (Arduino sketch, tested with Nano and Pro Micro):
-- Modified output signal to reference Digital Out pins on arduino Nano
+O fluxo básico é:
 
-SimHub Belt Tensioner.shsds
-- Modified to use general Acceleration values (AccelerationSway;GlobalAccelerationG), which are supported by more games. Original was based on GameRawData.Physics.AccG01 and GameRawData.Physics.AccG03.
-- Added "Reste" Function - based on SimHub value "IsGameRunning" - checks if game is running, otherwise leaves belts untensioned. Original profile in Dirt Rally 2.0 was laways leaving residue tension in belts after race, which was nulled at the beginnning of next race, keeping belts in menus always tensioned.
+1. O SimHub lê acelerações lateral e longitudinal do jogo.
+2. Um script em JavaScript converte essas forças em **tensão esquerda** e **tensão direita** (valores de 0 a 127), aplica suavização e formato de protocolo.
+3. Os valores são enviados pela serial para o Arduino.
+4. O Arduino interpreta esses bytes, aplica offsets, inversão (se configurada) e move os servos em tempo real.
 
+---
 
-Servos:
+## Hardware
 
-My seatbelt tensioner is built on 60KG servos. Originally started with 35KG, which is more than enough stength, but they burned out very fast - they cannot support working on full load under such circumstances.
+### Componentes principais
 
-The 60kg serwos are 180 degrees, the range I am using them is only 50 degrees. More than 60 they obtail full load, which translates to 4A consumption per servo, also it reallyhurts my sholders at this stage, whcih is better to be avoided. I ordered the 180ddegree ones for ease of configuration in SimHub, but with original brackets rarely they will  used more than 90 degrees of rotation. Also ordered full metal brackets and ball bearing rollers - they are pretty strong and you need the structural integrity.
+- Arduino Nano.
+- 2 × servos de alto torque, 180°, ~60 kg·cm (por exemplo, DSServo RDS5160 SSG ou similar).
+- Módulo DC-DC step-up/step-down com capacidade de corrente adequada para os servos.
+- Fonte 12 V (ou similar) dimensionada para a corrente total dos servos.
+- Cabeamento e conectores adequados (por exemplo, XT60, se desejar).
+- Opcional: banco de supercapacitores para suavizar picos de corrente.
 
+### Ligação elétrica
 
-Power Supply:
+#### 1. Alimentação dos servos
 
-Servos are driven at 8.2Vm which is little less than their advertised maximum of 8.4V. This gives very fast response, also quiet operation.
-I have added Supercapacitors to smoothen the servo responese time, also load on the Power Supply DC-DC convertor. Supercapacitors requite ballance circuit, chepest option was to buy 6 in series and cut them in half. Every capacitor has 2.7V nominal so 3 in series are enought for driving the servos.
+- **Nunca** alimente servos de alto torque diretamente da porta 5 V do Arduino.
+- Use uma **fonte dedicada** ou módulo DC-DC ajustado para a tensão de operação dos servos (por exemplo, aproximadamente 8.2 V, conforme mencionado na descrição original; ajuste de acordo com a especificação dos seus servos).
+- Ligue:
 
-Supercapacitors charge for less than minute, initial current is 4A at about 5 seconds, then drops rapidly. The 5A module is still holding OK. I ampowering it with 12V from anothe Powersupply, used for mi Bass shakers + wind sim + aRGB lights.
+  - Saída positiva do módulo DC-DC → fio **V+** de alimentação de ambos os servos.
+  - Saída negativa do módulo DC-DC → fio **GND** de ambos os servos.
 
+#### 2. Alimentação do Arduino
 
-Servo current draw:
+- O Arduino Nano pode ser alimentado:
+  - Pela porta USB (recomendado durante configuração e testes), ou
+  - Pelo pino **VIN** (7–12 V) a partir da mesma fonte 12 V usada para o módulo DC-DC (com terra comum).
 
-Full lock - 4A (measured 3.8-42)<br>
-Normal lock (without hurting shoulders) - about 2-2.2A
+#### 3. Terra comum (GND)
 
+- É **obrigatório** que o GND da fonte dos servos e o GND do Arduino estejam conectados entre si:
+  - GND da fonte / módulo DC-DC → GND dos servos.
+  - GND da fonte / módulo DC-DC → GND do Arduino (qualquer pino GND).
+- Isso garante que os sinais de controle dos pinos digitais do Arduino tenham a mesma referência de terra que os servos.
 
-Mechanical configuration:
+#### 4. Sinais de controle dos servos
 
-Servos were mechanically adjusted after powering them up (without conection to PC) to reflect 0 degree angle at the most realxt position Iwant them in.
-Servos are mounted directly to 3030 Aluminum profile attached to the bottom of my seat using the supplied metal brackets. Extensive testing proved this is enough for structural integrity.
+- Cada servo tem três fios típicos:
+  - **Sinal** (geralmente laranja/branco).
+  - **V+** (vermelho).
+  - **GND** (preto/marrom).
 
+- Conexão dos **sinais**:
+  - Servo esquerdo:
+    - Fio de sinal → pino `SERVO_LEFT` do Arduino (no código, pino 2).
+  - Servo direito:
+    - Fio de sinal → pino `SERVO_RIGHT` do Arduino (no código, pino 3).
 
-Software configuration:
+- Conexão de **alimentação**:
+  - Fios V+ de ambos os servos → saída positiva do módulo DC-DC.
+  - Fios GND de ambos os servos → GND do módulo DC-DC (que também está ligado ao GND do Arduino).
 
-Sketch loaded to Arduino Nano, connected as Custom Serial Device in SimHub.
-Initial servo position, max tension - set in SimHub Profile. 
+#### 5. LED de status
 
-Update 09.12.2022:
+- O código utiliza um LED de status ligado ao pino `LED` (pino 17 no mapping utilizado).
+- Conexão típica:
+  - Pino 17 → resistor (por exemplo, 220 Ω) → anodo do LED.
+  - Catodo do LED → GND.
+- O código pisca o LED com diferentes padrões para indicar:
+  - Estado ocioso (idle).
+  - Atuação do servo esquerdo.
+  - Atuação do servo direito.
 
-Added latest SimHub profile featuring Game Check options. This was needed because WRC 10 has different implementation on Acclerations so tensioner was working backwards. Now it switches values automatically.
+#### 6. Proteções recomendadas
 
-Added Message Belt text file which features only the Game Acceleration Message code for ease of use.
+- Fusível na linha de alimentação principal dos servos (por exemplo, 10 A, dependendo do seu conjunto).
+- Conectores robustos (tipo XT60) entre fonte e módulo DC-DC.
+- Se usar supercapacitores:
+  - Colocá-los em paralelo com a saída do módulo DC-DC (respeitando tensão máxima).
+  - Usar circuito de balanceamento se forem ligados em série.
+
+---
+
+## Software – Arduino
+
+Principais características do sketch:
+
+- Controla dois servos (`servo_left` e `servo_right`) pelos pinos definidos em `SERVO_LEFT` e `SERVO_RIGHT`.
+- Usa a EEPROM para armazenar:
+  - Offset do servo esquerdo (`ladd`).
+  - Offset do servo direito (`radd`).
+  - Flags de inversão de sentido dos servos.
+- Na inicialização:
+  - Lê offsets e flags da EEPROM.
+  - Se a EEPROM não tiver valores válidos, usa valores padrão.
+  - Move os servos para a posição “relaxada” configurada.
+- No loop:
+  - Gera padrão de pisca no LED para indicar estado.
+  - Lê bytes vindos pela serial e interpreta conforme protocolo:
+    - Comandos `< 2` ajustam offsets e salvam na EEPROM.
+    - Comando específico para inversão salva flags na EEPROM.
+    - Valores de posição movimentam os servos, aplicando:
+      - Offset.
+      - Inversão, se habilitada.
+      - Limites de segurança de ângulo.
+
+---
+
+## Software – SimHub (JavaScript Custom Serial)
+
+O script de saída do SimHub:
+
+- Lê as propriedades de física do jogo (forças G longitudinais e laterais).
+- Aplica ganhos configuráveis (`yaw_gain`, `decel_gain`).
+- Garante que apenas **desaceleração (freio)** seja usada para tensionar.
+- Converte essas forças em:
+  - Tensão do cinto esquerdo.
+  - Tensão do cinto direito.
+- Usa um filtro IIR controlado por `smooth` para suavizar as variações.
+- Limita as tensões em um intervalo seguro definido por `tmax`.
+- Codifica os valores em bytes, usando:
+  - Bit menos significativo (bit 0) para identificar qual servo é destinado (esquerdo/direito).
+  - Faixas mínimas diferentes para cada lado, conforme protocolo esperado pelo Arduino.
+- Envia pela serial:
+  - Comandos de posição (tensão) para os dois servos.
+  - Comando de configuração de inversão de direção, conforme checkboxes no SimHub:
+    - `invert_servo_left`.
+    - `invert_servo_right`.
+
+---
+
+## Fluxo de Uso
+
+1. **Montagem de hardware**:
+   - Fixar servos na estrutura do cockpit.
+   - Passar os cintos pelos roletes/rolos.
+   - Fazer todas as ligações elétricas conforme descrito acima.
+2. **Configuração do Arduino**:
+   - Gravar o sketch no Arduino Nano.
+   - Conectar o Nano ao PC via USB.
+3. **Configuração no SimHub**:
+   - Adicionar o Arduino Nano como **Custom Serial Device**.
+   - Carregar o perfil do belt tensioner.
+   - Ajustar:
+     - Offsets iniciais dos servos (posição relaxada).
+     - `tmax` (tensão máxima aceitável).
+     - Ganhos de yaw e desaceleração.
+     - Suavização (`smooth`).
+     - Inversão de servos caso algum esteja mecanicamente invertido.
+4. **Teste**:
+   - Com jogo rodando, verificar se:
+     - Ao frear, ambos os cintos tensionam.
+     - Em curva à direita, o cinto direito tensiona mais.
+     - Em curva à esquerda, o cinto esquerdo tensiona mais.
+     - Os movimentos são suaves e confortáveis (ajustar `tmax`, ganhos e `smooth` conforme necessário).
+
+---
+
+## Notas Finais
+
+- Servos de alto torque podem consumir muita corrente próximos ao travamento mecânico. Ajuste `tmax` e offsets para evitar que o sistema force demais o mecanismo ou o ombro.
+- Sempre teste com cuidado as primeiras vezes, aumentando a tensão gradualmente até encontrar um ponto confortável e seguro.
