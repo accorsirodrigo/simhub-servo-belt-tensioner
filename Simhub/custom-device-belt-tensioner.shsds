@@ -1,0 +1,133 @@
+{
+  "AutomaticReconnect": true,
+  "SerialPortName": "COM6",
+  "StartupDelayMs": 0,
+  "IsConnecting": false,
+  "IsEnabled": true,
+  "LogIncomingData": false,
+  "IsConnected": true,
+  "BaudRate": 19200,
+  "DtrEnable": true,
+  "RtsEnable": true,
+  "EditorExpanded": true,
+  "Name": "Custom Serial device",
+  "Description": "Servo Belt tensioner",
+  "LastErrorDate": "2026-02-05T22:20:36.5625217-03:00",
+  "LastErrorMessage": null,
+  "IsFreezed": false,
+  "SettingsBuilder": {
+    "Settings": [
+      {
+        "Shown": true,
+        "Maximum": 65,
+        "Minimum": 0,
+        "PropertyName": "LeftOffset",
+        "CurrentValue": 0,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Left Untensioned",
+        "Id": "41f1118c-3df0-4c59-9016-e635b6db7585"
+      },
+      {
+        "Shown": true,
+        "Maximum": 65,
+        "Minimum": 0,
+        "PropertyName": "RightOffset",
+        "CurrentValue": 0,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Right Untensioned",
+        "Id": "ab19c8db-db4b-42ea-80c0-dab9db56864b"
+      },
+      {
+        "Shown": true,
+        "PropertyName": "TestOffsets",
+        "CurrentValue": false,
+        "Name": null,
+        "TypeName": "BoolEntry",
+        "Label": "Check untensioned position",
+        "Id": "04d37b36-5ce0-4a75-b20f-886beb8ce973"
+      },
+      {
+        "Shown": true,
+        "Maximum": 100,
+        "Minimum": 0,
+        "PropertyName": "decel_gain",
+        "CurrentValue": 69,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Decel Gain",
+        "Id": "68af0376-04c6-47db-8af8-daf428a61775"
+      },
+      {
+        "Shown": true,
+        "Maximum": 80,
+        "Minimum": 0,
+        "PropertyName": "yaw_gain",
+        "CurrentValue": 55,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Delta Yaw Gain",
+        "Id": "b8058d4a-9f1e-4aa6-84ba-48b7adacf55c"
+      },
+      {
+        "Shown": true,
+        "Maximum": 20,
+        "Minimum": 0,
+        "PropertyName": "smooth",
+        "CurrentValue": 0,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Smoothing",
+        "Id": "4ccd44ca-1ea5-4b36-b19d-344095014354"
+      },
+      {
+        "Shown": true,
+        "Maximum": 127,
+        "Minimum": 20,
+        "PropertyName": "tmax",
+        "CurrentValue": 99,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Configure Max Tension",
+        "Id": "17671d55-46a2-4226-be86-b7f56e74bd42"
+      },
+      {
+        "Shown": true,
+        "PropertyName": "max_test",
+        "CurrentValue": false,
+        "Name": null,
+        "TypeName": "BoolEntry",
+        "Label": "Check Max Tension (Test)",
+        "Id": "5682762b-788b-45e1-ad2e-a76ea6e06d0b"
+      }
+    ],
+    "IsEditMode": false
+  },
+  "OnConnectMessage": {
+    "Expression": "' !'"
+  },
+  "OnDisconnectMessage": {
+    "Expression": "' !'"
+  },
+  "UpdateMessages": [
+    {
+      "Message": {
+        "JSExt": 3,
+        "Interpreter": 1,
+        "Expression": "// Adjust range of servo movements\r\nconst leftOffset = $prop('Settings.LeftOffset');\r\nconst rightOffset = $prop('Settings.RightOffset');\r\n\r\n// Command codes for setting offsets\r\nconst CMD_SET_LEFT_OFFSET = 0;\r\nconst CMD_SET_RIGHT_OFFSET = 1;\r\n\r\n// Servo positions (default: slack/minimum tension)\r\nlet leftServoPos = 2;\r\nlet rightServoPos = 3;\r\n\r\n// If testing maximum tension, use tmax value\r\nif ($prop('Settings.max_test')) {\r\n  leftServoPos = 126 & $prop('Settings.tmax');\r\n  rightServoPos = 1 + leftServoPos;\r\n}\r\n\r\n// Convert to serial protocol format\r\nconst setLeftOffsetCmd = String.fromCharCode(CMD_SET_LEFT_OFFSET);\r\nconst setRightOffsetCmd = String.fromCharCode(CMD_SET_RIGHT_OFFSET);\r\nconst leftOffsetChar = String.fromCharCode(leftOffset);\r\nconst rightOffsetChar = String.fromCharCode(rightOffset);\r\nconst leftServoPosChar = String.fromCharCode(leftServoPos);\r\nconst rightServoPosChar = String.fromCharCode(rightServoPos);\r\n\r\n// Send: set left offset, set right offset, then move servos\r\nreturn setLeftOffsetCmd + leftOffsetChar + setRightOffsetCmd + rightOffsetChar + leftServoPosChar + rightServoPosChar;"
+      },
+      "IsEnabled": true,
+      "MaximumFrequency": 0
+    },
+    {
+      "Message": {
+        "JSExt": 3,
+        "Interpreter": 1,
+        "Expression": "// Read G-forces from SimHub (negated for correct direction)\r\nconst lateralAccel = -$prop('GameRawData.Physics.AccG01');  // Yaw acceleration\r\nconst decelAccel = -$prop('GameRawData.Physics.AccG03');    // Forward deceleration\r\n\r\n// Apply user-configured gains\r\nconst yawGain = $prop('Settings.yaw_gain');\r\nconst decelGain = $prop('Settings.decel_gain');\r\nconst smoothing = $prop('Settings.smooth');\r\nconst maxTension = $prop('Settings.tmax') & 126;\r\n\r\nlet Gy = lateralAccel * yawGain;\r\nlet Gs = Math.max(0, decelAccel * decelGain);  // Non-negative only\r\n\r\n// Calculate left and right tension using vector magnitude\r\n// Right tension: magnitude of combined forces\r\n// Left tension: double decel minus right (creates differential)\r\nlet rightTension = Math.sqrt(Gs * Gs + Gy * Gy);\r\nlet leftTension = 2 * Gs - rightTension;\r\n\r\n// Negative Gy (left turn) increases left tension, so swap\r\nif (Gy < 0) {\r\n  [leftTension, rightTension] = [rightTension, leftTension];\r\n}\r\n\r\n// Apply IIR low-pass filter for smooth transitions\r\nif (root[\"leftFiltered\"] == null) {\r\n  root[\"leftFiltered\"] = leftTension;\r\n  root[\"rightFiltered\"] = rightTension;\r\n}\r\n\r\nconst filterConstant = 1 + smoothing;\r\nroot[\"leftFiltered\"] += (leftTension - root[\"leftFiltered\"]) / filterConstant;\r\nroot[\"rightFiltered\"] += (rightTension - root[\"rightFiltered\"]) / filterConstant;\r\n\r\nleftTension = root[\"leftFiltered\"];\r\nrightTension = root[\"rightFiltered\"];\r\n\r\n// Clamp values within valid range\r\nleftTension = Math.max(2, Math.min(maxTension, leftTension));\r\nrightTension = Math.max(3, Math.min(maxTension | 1, rightTension));\r\n\r\n// Apply bit masks for protocol (bit 0 = servo identifier)\r\nleftTension = Math.floor(leftTension) & 0x7E;   // Force bit 0 = 0 (left)\r\nrightTension = Math.floor(rightTension) | 1;    // Force bit 0 = 1 (right)\r\n\r\n// Test mode: disable output and reset filters\r\nif ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {\r\n  root[\"leftFiltered\"] = 0;\r\n  root[\"rightFiltered\"] = 0;\r\n  return \"\";\r\n}\r\n\r\n// Send servo control commands\r\nreturn String.fromCharCode(leftTension, rightTension);"
+      },
+      "IsEnabled": true,
+      "MaximumFrequency": 0
+    }
+  ]
+}
