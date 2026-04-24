@@ -17,6 +17,7 @@ Modelos 3D:
 - Rolos do tensionador: https://www.thingiverse.com/thing:5490048  
 - Caixa para supercaps + Arduino: https://www.thingiverse.com/thing:5490068  
 
+
 ---
 
 ## Visão Geral
