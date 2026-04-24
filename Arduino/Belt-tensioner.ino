@@ -12,7 +12,7 @@
 Servo servo_left, servo_right;
 unsigned long last_entry = millis(), timeout = 0;
 int next = HIGH;
-byte ladd = 63, radd = 65;
+byte ladd = 60, radd = 60;
 byte led_state = 0;
 const byte LED_TIMING[3][2] = {{30,30}, {180,40}, {40,180}};
 
