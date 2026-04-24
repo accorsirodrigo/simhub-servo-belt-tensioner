@@ -1,0 +1,181 @@
+name: Auto Release Belt Tensioner
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Arduino/Belt-tensioner.ino'
+      - 'Simhub/custom-device-belt-tensioner.shsds'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR labels and title
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the merge commit
+          MERGE_COMMIT="${{ github.sha }}"
+
+          # Find the PR that contains this commit
+          PR_DATA=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $commit:String!) {
+              repository(owner:$owner, name:$repo) {
+                commit: object(expression:$commit) {
+                  ... on Commit {
+                    associatedPullRequests(first:1) {
+                      nodes {
+                        number
+                        title
+                        labels(first:10) {
+                          nodes {
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' -f owner="${{ github.repository_owner }}" -f repo="${{ github.event.repository.name }}" -f commit="$MERGE_COMMIT")
+
+          echo "PR_DATA=$PR_DATA" >> $GITHUB_ENV
+
+          # Extract PR number
+          PR_NUMBER=$(echo "$PR_DATA" | jq -r '.data.repository.commit.associatedPullRequests.nodes[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No associated PR found"
+            exit 0
+          fi
+
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+          # Extract labels
+          LABELS=$(echo "$PR_DATA" | jq -r '.data.repository.commit.associatedPullRequests.nodes[0].labels.nodes[].name' | tr '\n' ' ')
+          echo "LABELS=$LABELS" >> $GITHUB_OUTPUT
+
+          echo "Found PR: $PR_NUMBER with labels: $LABELS"
+
+      - name: Determine version bump
+        id: version
+        run: |
+          LABELS="${{ steps.pr_info.outputs.LABELS }}"
+
+          # Read current version
+          MAJOR=$(jq -r '.major' version.json)
+          MINOR=$(jq -r '.minor' version.json)
+          PATCH=$(jq -r '.patch' version.json)
+
+          echo "Current version: $MAJOR.$MINOR.$PATCH"
+
+          # Check for version bump labels
+          if echo "$LABELS" | grep -qi "major"; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            BUMP_TYPE="major"
+          elif echo "$LABELS" | grep -qi "minor"; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            BUMP_TYPE="minor"
+          elif echo "$LABELS" | grep -qi "patch"; then
+            PATCH=$((PATCH + 1))
+            BUMP_TYPE="patch"
+          else
+            # Default to patch bump if no label found
+            PATCH=$((PATCH + 1))
+            BUMP_TYPE="patch"
+          fi
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "BUMP_TYPE=$BUMP_TYPE" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION (bumped $BUMP_TYPE)"
+
+      - name: Update version file
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+          MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$NEW_VERSION" | cut -d. -f2)
+          PATCH=$(echo "$NEW_VERSION" | cut -d. -f3)
+
+          jq --arg major "$MAJOR" --arg minor "$MINOR" --arg patch "$PATCH" --arg version "$NEW_VERSION" \
+            '.major = ($major | tonumber) | .minor = ($minor | tonumber) | .patch = ($patch | tonumber) | .version = $version' \
+            version.json > version.json.tmp && mv version.json.tmp version.json
+
+          cat version.json
+
+      - name: Create release directory structure
+        run: |
+          # Create temp directory for release files
+          mkdir -p release-tmp/Arduino
+          mkdir -p release-tmp/Simhub
+
+          # Copy files maintaining structure
+          cp Arduino/Belt-tensioner.ino release-tmp/Arduino/
+          cp Simhub/custom-device-belt-tensioner.shsds release-tmp/Simhub/
+
+          # List structure
+          echo "Release structure:"
+          find release-tmp -type f
+
+      - name: Create ZIP archive
+        run: |
+          cd release-tmp
+          zip -r ../belt-tensioner-${{ steps.version.outputs.NEW_VERSION }}.zip Arduino/ Simhub/
+          cd ..
+          ls -lh belt-tensioner-*.zip
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit version update
+        run: |
+          git add version.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.NEW_VERSION }}"
+          git push origin main
+
+      - name: Create Git tag
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+          git tag -a "v$NEW_VERSION" -m "Release version $NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ steps.version.outputs.NEW_VERSION }}
+          name: Release ${{ steps.version.outputs.NEW_VERSION }}
+          body: |
+            ## Version ${{ steps.version.outputs.NEW_VERSION }}
+
+            **Bump Type**: ${{ steps.version.outputs.BUMP_TYPE }}
+
+            Contains:
+            - `Arduino/Belt-tensioner.ino`
+            - `Simhub/custom-device-belt-tensioner.shsds`
+          artifacts: belt-tensioner-${{ steps.version.outputs.NEW_VERSION }}.zip
+          draft: false
+          prerelease: false
+          allowUpdates: false
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf release-tmp
+          rm -f belt-tensioner-*.zip
