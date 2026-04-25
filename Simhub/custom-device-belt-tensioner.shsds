@@ -53,7 +53,7 @@
         "Maximum": 100,
         "Minimum": 0,
         "PropertyName": "decel_gain",
-        "CurrentValue": 69,
+        "CurrentValue": 30,
         "Name": null,
         "TypeName": "SliderEntry",
         "Label": "Decel Gain",
@@ -64,7 +64,7 @@
         "Maximum": 80,
         "Minimum": 0,
         "PropertyName": "yaw_gain",
-        "CurrentValue": 55,
+        "CurrentValue": 25,
         "Name": null,
         "TypeName": "SliderEntry",
         "Label": "Delta Yaw Gain",
@@ -75,7 +75,7 @@
         "Maximum": 20,
         "Minimum": 0,
         "PropertyName": "smooth",
-        "CurrentValue": 0,
+        "CurrentValue": 8,
         "Name": null,
         "TypeName": "SliderEntry",
         "Label": "Smoothing",
@@ -124,7 +124,7 @@
       "Message": {
         "JSExt": 3,
         "Interpreter": 1,
-        "Expression": "// Read G-forces from SimHub (negated for correct direction)\r\nconst lateralAccel = -$prop('GameRawData.Physics.AccG01');  // Yaw acceleration\r\nconst decelAccel = -$prop('GameRawData.Physics.AccG03');    // Forward deceleration\r\n\r\n// Apply user-configured gains\r\nconst yawGain = $prop('Settings.yaw_gain');\r\nconst decelGain = $prop('Settings.decel_gain');\r\nconst smoothing = $prop('Settings.smooth');\r\nconst maxTension = $prop('Settings.tmax') & 126;\r\n\r\nlet Gy = lateralAccel * yawGain;\r\nlet Gs = Math.max(0, decelAccel * decelGain);  // Non-negative only\r\n\r\n// Calculate left and right tension using vector magnitude\r\n// Right tension: magnitude of combined forces\r\n// Left tension: double decel minus right (creates differential)\r\nlet rightTension = Math.sqrt(Gs * Gs + Gy * Gy);\r\nlet leftTension = 2 * Gs - rightTension;\r\n\r\n// Negative Gy (left turn) increases left tension, so swap\r\nif (Gy < 0) {\r\n  [leftTension, rightTension] = [rightTension, leftTension];\r\n}\r\n\r\n// Apply IIR low-pass filter for smooth transitions\r\nif (root[\"leftFiltered\"] == null) {\r\n  root[\"leftFiltered\"] = leftTension;\r\n  root[\"rightFiltered\"] = rightTension;\r\n}\r\n\r\nconst filterConstant = 1 + smoothing;\r\nroot[\"leftFiltered\"] += (leftTension - root[\"leftFiltered\"]) / filterConstant;\r\nroot[\"rightFiltered\"] += (rightTension - root[\"rightFiltered\"]) / filterConstant;\r\n\r\nleftTension = root[\"leftFiltered\"];\r\nrightTension = root[\"rightFiltered\"];\r\n\r\n// Clamp values within valid range\r\nleftTension = Math.max(2, Math.min(maxTension, leftTension));\r\nrightTension = Math.max(3, Math.min(maxTension | 1, rightTension));\r\n\r\n// Apply bit masks for protocol (bit 0 = servo identifier)\r\nleftTension = Math.floor(leftTension) & 0x7E;   // Force bit 0 = 0 (left)\r\nrightTension = Math.floor(rightTension) | 1;    // Force bit 0 = 1 (right)\r\n\r\n// Test mode: disable output and reset filters\r\nif ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {\r\n  root[\"leftFiltered\"] = 0;\r\n  root[\"rightFiltered\"] = 0;\r\n  return \"\";\r\n}\r\n\r\n// Send servo control commands\r\nreturn String.fromCharCode(leftTension, rightTension);"
+        "Expression": "// Read G-forces from SimHub (negated for correct direction)\r\nconst lateralAccel = -$prop('GameRawData.Physics.AccG01');  // Yaw acceleration\r\nconst decelAccel = -$prop('GameRawData.Physics.AccG03');    // Forward deceleration\r\n\r\n// Apply user-configured gains\r\nconst yawGain = $prop('Settings.yaw_gain');\r\nconst decelGain = $prop('Settings.decel_gain');\r\nconst smoothing = $prop('Settings.smooth');\r\nconst maxTension = $prop('Settings.tmax') & 126;\r\n\r\nlet Gy = lateralAccel * yawGain;\r\nlet Gs = Math.max(0, decelAccel * decelGain);  // Non-negative only\r\n\r\n// Calculate left and right tension using vector magnitude\r\n// Right tension: magnitude of combined forces (divided by 2 for smoother response)\r\n// Left tension: double decel minus right (creates differential)\r\nlet rightTension = Math.sqrt(Gs * Gs + Gy * Gy) / 2;\r\nlet leftTension = Gs - rightTension;\r\n\r\n// Negative Gy (left turn) increases left tension, so swap\r\nif (Gy < 0) {\r\n  [leftTension, rightTension] = [rightTension, leftTension];\r\n}\r\n\r\n// Apply IIR low-pass filter for smooth transitions\r\nif (root[\"leftFiltered\"] == null) {\r\n  root[\"leftFiltered\"] = leftTension;\r\n  root[\"rightFiltered\"] = rightTension;\r\n}\r\n\r\nconst filterConstant = 1 + smoothing;\r\nroot[\"leftFiltered\"] += (leftTension - root[\"leftFiltered\"]) / filterConstant;\r\nroot[\"rightFiltered\"] += (rightTension - root[\"rightFiltered\"]) / filterConstant;\r\n\r\nleftTension = root[\"leftFiltered\"];\r\nrightTension = root[\"rightFiltered\"];\r\n\r\n// Clamp values within valid range\r\nleftTension = Math.max(2, Math.min(maxTension, leftTension));\r\nrightTension = Math.max(3, Math.min(maxTension | 1, rightTension));\r\n\r\n// Apply bit masks for protocol (bit 0 = servo identifier)\r\nleftTension = Math.floor(leftTension) & 0x7E;   // Force bit 0 = 0 (left)\r\nrightTension = Math.floor(rightTension) | 1;    // Force bit 0 = 1 (right)\r\n\r\n// Test mode: disable output and reset filters\r\nif ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {\r\n  root[\"leftFiltered\"] = 0;\r\n  root[\"rightFiltered\"] = 0;\r\n  return \"\";\r\n}\r\n\r\n// Send servo control commands\r\nreturn String.fromCharCode(leftTension, rightTension);"
       },
       "IsEnabled": true,
       "MaximumFrequency": 0
