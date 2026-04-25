@@ -100,6 +100,39 @@
         "TypeName": "BoolEntry",
         "Label": "Check Max Tension (Test)",
         "Id": "5682762b-788b-45e1-ad2e-a76ea6e06d0b"
+      },
+      {
+        "Shown": true,
+        "Maximum": 100,
+        "Minimum": 0,
+        "PropertyName": "suspension_sensitivity",
+        "CurrentValue": 40,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Suspension Sensitivity",
+        "Id": "a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6"
+      },
+      {
+        "Shown": true,
+        "Maximum": 100,
+        "Minimum": 0,
+        "PropertyName": "rumble_intensity",
+        "CurrentValue": 35,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Road Rumble Intensity",
+        "Id": "b2c3d4e5-f6g7-48h9-i0j1-k2l3m4n5o6p7"
+      },
+      {
+        "Shown": true,
+        "Maximum": 100,
+        "Minimum": 1,
+        "PropertyName": "rumble_frequency",
+        "CurrentValue": 50,
+        "Name": null,
+        "TypeName": "SliderEntry",
+        "Label": "Rumble Frequency (Hz)",
+        "Id": "c3d4e5f6-g7h8-49i0-j1k2-l3m4n5o6p7q8"
       }
     ],
     "IsEditMode": false
@@ -124,7 +157,7 @@
       "Message": {
         "JSExt": 3,
         "Interpreter": 1,
-        "Expression": "// Read G-forces from SimHub (negated for correct direction)\r\nconst lateralAccel = -$prop('GameRawData.Physics.AccG01');  // Yaw acceleration\r\nconst decelAccel = -$prop('GameRawData.Physics.AccG03');    // Forward deceleration\r\n\r\n// Apply user-configured gains\r\nconst yawGain = $prop('Settings.yaw_gain');\r\nconst decelGain = $prop('Settings.decel_gain');\r\nconst smoothing = $prop('Settings.smooth');\r\nconst maxTension = $prop('Settings.tmax') & 126;\r\n\r\nlet Gy = lateralAccel * yawGain;\r\nlet Gs = Math.max(0, decelAccel * decelGain);  // Non-negative only\r\n\r\n// Calculate left and right tension using vector magnitude\r\n// Right tension: magnitude of combined forces (divided by 2 for smoother response)\r\n// Left tension: double decel minus right (creates differential)\r\nlet rightTension = Math.sqrt(Gs * Gs + Gy * Gy) / 2;\r\nlet leftTension = Gs - rightTension;\r\n\r\n// Negative Gy (left turn) increases left tension, so swap\r\nif (Gy < 0) {\r\n  [leftTension, rightTension] = [rightTension, leftTension];\r\n}\r\n\r\n// Apply IIR low-pass filter for smooth transitions\r\nif (root[\"leftFiltered\"] == null) {\r\n  root[\"leftFiltered\"] = leftTension;\r\n  root[\"rightFiltered\"] = rightTension;\r\n}\r\n\r\nconst filterConstant = 1 + smoothing;\r\nroot[\"leftFiltered\"] += (leftTension - root[\"leftFiltered\"]) / filterConstant;\r\nroot[\"rightFiltered\"] += (rightTension - root[\"rightFiltered\"]) / filterConstant;\r\n\r\nleftTension = root[\"leftFiltered\"];\r\nrightTension = root[\"rightFiltered\"];\r\n\r\n// Clamp values within valid range\r\nleftTension = Math.max(2, Math.min(maxTension, leftTension));\r\nrightTension = Math.max(3, Math.min(maxTension | 1, rightTension));\r\n\r\n// Apply bit masks for protocol (bit 0 = servo identifier)\r\nleftTension = Math.floor(leftTension) & 0x7E;   // Force bit 0 = 0 (left)\r\nrightTension = Math.floor(rightTension) | 1;    // Force bit 0 = 1 (right)\r\n\r\n// Test mode: disable output and reset filters\r\nif ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {\r\n  root[\"leftFiltered\"] = 0;\r\n  root[\"rightFiltered\"] = 0;\r\n  return \"\";\r\n}\r\n\r\n// Send servo control commands\r\nreturn String.fromCharCode(leftTension, rightTension);"
+        "Expression": "// Read G-forces from SimHub (negated for correct direction)\r\nconst lateralAccel = -$prop('GameRawData.Physics.AccG01');  // Yaw acceleration\r\nconst decelAccel = -$prop('GameRawData.Physics.AccG03');    // Forward deceleration\r\n\r\n// Read suspension data for rumble/bumps\r\nconst suspensionTravel = $prop('GameRawData.Physics.SuspensionTravel01') || 0;  // Front left\r\nconst suspensionTravelRear = $prop('GameRawData.Physics.SuspensionTravel03') || 0;  // Rear left\r\nconst suspensionVelocity = $prop('GameRawData.Physics.SuspensionVelocity01') || 0;  // Suspension speed\r\n\r\n// Apply user-configured gains\r\nconst yawGain = $prop('Settings.yaw_gain');\r\nconst decelGain = $prop('Settings.decel_gain');\r\nconst smoothing = $prop('Settings.smooth');\r\nconst suspensionSensitivity = $prop('Settings.suspension_sensitivity');\r\nconst rumbleIntensity = $prop('Settings.rumble_intensity');\r\nconst rumbleFrequency = $prop('Settings.rumble_frequency');\r\nconst maxTension = $prop('Settings.tmax') & 126;\r\n\r\nlet Gy = lateralAccel * yawGain;\r\nlet Gs = Math.max(0, decelAccel * decelGain);  // Non-negative only\r\n\r\n// Calculate left and right tension using vector magnitude\r\n// Right tension: magnitude of combined forces (divided by 2 for smoother response)\r\n// Left tension: differential based on decel\r\nlet rightTension = Math.sqrt(Gs * Gs + Gy * Gy) / 2;\r\nlet leftTension = Gs - rightTension;\r\n\r\n// Negative Gy (left turn) increases left tension, so swap\r\nif (Gy < 0) {\r\n  [leftTension, rightTension] = [rightTension, leftTension];\r\n}\r\n\r\n// Apply IIR low-pass filter for smooth transitions\r\nif (root[\"leftFiltered\"] == null) {\r\n  root[\"leftFiltered\"] = leftTension;\r\n  root[\"rightFiltered\"] = rightTension;\r\n  root[\"prevSuspensionTravel\"] = suspensionTravel;\r\n  root[\"rumblePhase\"] = 0;\r\n}\r\n\r\nconst filterConstant = 1 + smoothing;\r\nroot[\"leftFiltered\"] += (leftTension - root[\"leftFiltered\"]) / filterConstant;\r\nroot[\"rightFiltered\"] += (rightTension - root[\"rightFiltered\"]) / filterConstant;\r\n\r\nleftTension = root[\"leftFiltered\"];\r\nrightTension = root[\"rightFiltered\"];\r\n\r\n// === SUSPENSION BUMP DETECTION ===\r\nconst suspensionDelta = Math.abs(suspensionTravel - root[\"prevSuspensionTravel\"]);\r\nconst bumpForce = Math.max(0, suspensionVelocity * suspensionSensitivity / 50);\r\nconst bumpPulse = suspensionDelta > 0.01 ? bumpForce * 15 : 0;\r\n\r\n// === ROAD RUMBLE (High-frequency oscillation) ===\r\nroot[\"rumblePhase\"] = (root[\"rumblePhase\"] + (rumbleFrequency / 100)) % 6.28;\r\nconst rumbleMagnitude = Math.sin(root[\"rumblePhase\"]) * rumbleIntensity / 50;\r\nconst rumbleTension = Math.max(0, rumbleMagnitude);\r\n\r\n// === COMBINE EFFECTS ===\r\n// Add rumble and bump effects to base tension\r\nleftTension += rumbleTension + (bumpPulse * 0.5);\r\nrightTension += rumbleTension + bumpPulse;\r\n\r\nroot[\"prevSuspensionTravel\"] = suspensionTravel;\r\n\r\n// Clamp values within valid range\r\nleftTension = Math.max(2, Math.min(maxTension, leftTension));\r\nrightTension = Math.max(3, Math.min(maxTension | 1, rightTension));\r\n\r\n// Apply bit masks for protocol (bit 0 = servo identifier)\r\nleftTension = Math.floor(leftTension) & 0x7E;   // Force bit 0 = 0 (left)\r\nrightTension = Math.floor(rightTension) | 1;    // Force bit 0 = 1 (right)\r\n\r\n// Test mode: disable output and reset filters\r\nif ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {\r\n  root[\"leftFiltered\"] = 0;\r\n  root[\"rightFiltered\"] = 0;\r\n  root[\"prevSuspensionTravel\"] = 0;\r\n  root[\"rumblePhase\"] = 0;\r\n  return \"\";\r\n}\r\n\r\n// Send servo control commands with rumble/bump effects\r\nreturn String.fromCharCode(leftTension, rightTension);"
       },
       "IsEnabled": true,
       "MaximumFrequency": 0
